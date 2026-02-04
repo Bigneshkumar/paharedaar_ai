@@ -1,6 +1,6 @@
 from fastapi import Header, HTTPException
 
-API_KEY = "Paharedaar_ai_au2026b"
+API_KEY = "PAHAREDAAR_SECRET_123"
 
 def verify_api_key(x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
