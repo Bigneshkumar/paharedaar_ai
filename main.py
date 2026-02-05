@@ -3,14 +3,12 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 
-# --- INITIALIZATION ---
 app = FastAPI(title="Paharedaar_API")
 
 # --- CONFIGURATION ---
-# As per your requirement
 REQUIRED_API_KEY = "Paharedaar_Api_au2026b"
 
-# --- DATA MODELS (Ensures structured JSON output) ---
+# --- DATA MODELS ---
 class Intelligence(BaseModel):
     upi_ids: List[str] = []
     bank_accounts: List[str] = []
@@ -19,25 +17,22 @@ class Intelligence(BaseModel):
 class ScamResponse(BaseModel):
     response: str
     extracted_intelligence: Intelligence
-    status: str  # ENGAGING, EXTRACTED, or TERMINATED
+    status: str
 
 class ScamRequest(BaseModel):
     session_id: str
     message: str
 
-# Memory to track the conversation stage for each session
-# Stage 0: Naive Intro, Stage 1: Baiting (Asking for UPI), Stage 2: Error Verification
+# Memory to track the stage of the conversation
 session_stages: Dict[str, int] = {}
 
-# --- 1. DETECTION GATEWAY ---
+# --- 1. DETECTION GATEWAY (Keyword Classifier) ---
 def is_malicious(text: str) -> bool:
-    """Identify if the incoming message is a scam attempt."""
-    keywords = ["win", "lottery", "prize", "bank", "account", "click", "urgent", "kyc", "blocked", "customer care"]
+    keywords = ["win", "prize", "lottery", "bank", "account", "click", "urgent", "kyc", "limit", "blocked"]
     return any(word in text.lower() for word in keywords)
 
-# --- 2. INTELLIGENCE PARSER (Regex) ---
+# --- 2. INTELLIGENCE PARSER (Regex Scraper) ---
 def extract_intelligence(text: str) -> Intelligence:
-    """Scrapes financial details using Regular Expressions."""
     upi_regex = r'[a-zA-Z0-9.\-_]+@[a-zA-Z]{3,}'
     bank_regex = r'\b\d{9,18}\b'
     url_regex = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+'
@@ -48,81 +43,64 @@ def extract_intelligence(text: str) -> Intelligence:
         links=re.findall(url_regex, text)
     )
 
-# --- 3. STATE MACHINE AGENT (Paharedaar AI Logic) ---
+# --- 3. STATE MACHINE AGENT (Paharedaar AI Persona) ---
 def get_paharedaar_reply(user_msg: str, session_id: str, intel: Intelligence) -> str:
-    """
-    Simulates the Paharedaar AI persona:
-    - Feigns ignorance
-    - Uses Bait and Switch
-    - Verifies with Errors
-    """
     stage = session_stages.get(session_id, 0)
     msg = user_msg.lower()
 
-    # STRATEGY: Verify with Errors (If data is found)
+    # Strategy: Verify with Errors (If info is found)
     if intel.upi_ids or intel.bank_accounts:
         data = intel.upi_ids[0] if intel.upi_ids else intel.bank_accounts[0]
-        # Create a fake version with a wrong digit to trigger the "Verify with Error" strategy
-        fake_data = data[:-1] + ("1" if data[-1] != "1" else "2")
+        # Flip the last two digits to act confused
+        corrupted = data[:-2] + data[-1] + data[-2] if len(data) > 2 else data
         session_stages[session_id] = 2
-        return f"Wait, my eyes are quite weak. Is the account/ID {fake_data}? I want to make sure I don't send the money to the wrong place."
+        return f"Wait, my eyes are blurry. Is the account number {corrupted}? I want to be sure I don't send it to the wrong person."
 
-    # STRATEGY: Bait and Switch (If a link is sent)
+    # Strategy: Bait and Switch (If link is sent)
     if "http" in msg or intel.links:
         session_stages[session_id] = 1
-        return "I tried clicking that link but my phone says 'System Blocked'. It is a very old phone. Can you just give me your UPI ID or Bank Account number instead? I'll type it in manually."
+        return "I tried clicking that link but my phone says 'System Blocked'. It's very old. Do you have a UPI ID or a Bank Account number I can use instead?"
 
-    # STRATEGY: Feign Ignorance (Stage 0)
+    # Strategy: Feign Ignorance
     if stage == 0:
         session_stages[session_id] = 1
-        return "Oh! Thank you for contacting me. I was worried about my account. How can I start the process? I'm not very good with these things."
+        return "Oh! Thank you for reaching out. I really need help with my account. How do I start the process? I'm not good with phones."
 
-    # DEFAULT: Stall the conversation
-    return "I'm sorry, I got a bit confused. Could you explain that again? What do I need to do next?"
+    return "I'm a bit confused. Could you explain that again? I have my pen and paper ready to write down the steps."
 
-# --- THE API ENDPOINT ---
-
+# --- API ENDPOINT ---
 @app.post("/paharedaar_API/detect", response_model=ScamResponse)
 async def paharedaar_endpoint(
     request: ScamRequest, 
     x_api_key: Optional[str] = Header(None, alias="x-api-key")
 ):
-    # 1. Security Authentication Check
+    # Security Authentication
     if x_api_key != REQUIRED_API_KEY:
-        raise HTTPException(
-            status_code=401, 
-            detail="Unauthorized: Invalid Paharedaar API Key"
-        )
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid API Key")
 
-    # 2. Run Detection Gateway
-    # If the message isn't malicious and we haven't started yet, ask who they are.
+    # Detection Gateway
     if not is_malicious(request.message) and request.session_id not in session_stages:
         return ScamResponse(
-            response="Hello? Who is this and why are you messaging me?",
+            response="Hello? Who is this?",
             extracted_intelligence=Intelligence(),
             status="ENGAGING"
         )
 
-    # 3. Intelligence Parsing
+    # Intelligence Extraction
     intel = extract_intelligence(request.message)
 
-    # 4. Generate AI Persona Response via State Machine
+    # State Machine Response
     ai_reply = get_paharedaar_reply(request.message, request.session_id, intel)
 
-    # 5. Determine Current Status
+    # Determine Status
     current_status = "ENGAGING"
     if intel.upi_ids or intel.bank_accounts:
         current_status = "EXTRACTED"
-    
-    # Optional termination logic
-    if "goodbye" in ai_reply.lower() or "take care" in ai_reply.lower():
+    if "goodbye" in ai_reply.lower():
         current_status = "TERMINATED"
 
-    # 6. Return Structured JSON
     return ScamResponse(
         response=ai_reply,
         extracted_intelligence=intel,
         status=current_status
     )
-
-# TO RUN: uvicorn main:app --host 0.0.0.0 --port 8000
