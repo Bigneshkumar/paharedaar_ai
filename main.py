@@ -1,34 +1,64 @@
 from fastapi import FastAPI, Header, HTTPException
-import re
+from pydantic import BaseModel
+from typing import Optional
+from mock_scammer import generate_reply
 
-API_KEY = "PAHAREDAAR_SECRET_123"
+app = FastAPI(title="Paharedaar Honeypot API")
 
-app = FastAPI(title="Paharedaar AI")
+API_KEY = "Paharedaar_Api_au2026b"
 
+
+# ----------------------------
+# Request Models (STRICT)
+# ----------------------------
+class Message(BaseModel):
+    sender: str
+    text: str
+    timestamp: int
+
+
+class Metadata(BaseModel):
+    channel: Optional[str] = None
+    language: Optional[str] = None
+    locale: Optional[str] = None
+
+
+class HoneypotRequest(BaseModel):
+    sessionId: str
+    message: Message
+    conversationHistory: list
+    metadata: Optional[Metadata] = None
+
+
+# ----------------------------
+# Health Check
+# ----------------------------
 @app.get("/")
-def health():
-    return {"status": "ok", "service": "Paharedaar AI"}
+def root():
+    return {
+        "status": "ok",
+        "service": "Paharedaar AI",
+        "message": "API is live"
+    }
 
-@app.post("/paharedaar/process")
-def process_message(
-    payload: dict,
-    x_api_key: str = Header(...)
+
+# ----------------------------
+# HONEYPOT ENDPOINT (IMPORTANT)
+# ----------------------------
+@app.post("/honeypot")
+def honeypot_api(
+    payload: HoneypotRequest,
+    x_api_key: str = Header(None)
 ):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    text = payload.get("message", "")
+    scam_text = payload.message.text
 
-    upi = re.findall(r"\b[\w.-]+@[a-zA-Z]+\b", text)
-    bank = re.findall(r"\b\d{9,18}\b", text)
-    urls = re.findall(r"https?://\S+", text)
+    reply = generate_reply(scam_text)
+
 
     return {
-        "response": "Please explain again, I am confused about the payment.",
-        "state": "TRUST_BUILDING",
-        "extracted_intelligence": {
-            "upi_ids": upi,
-            "bank_accounts": bank,
-            "urls": urls
-        }
+        "status": "success",
+        "reply": reply
     }

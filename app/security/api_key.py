@@ -1,7 +1,10 @@
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, status
 
-API_KEY = "PAHAREDAAR_SECRET_123"
+API_KEY = "Paharedaar_Api_au2026b"
 
 def verify_api_key(x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API Key"
+        )
